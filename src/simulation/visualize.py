@@ -62,7 +62,8 @@ def mapa_interactivo(
             weight=2,
             popup=(
                 f"Foco #{int(row['cluster_id'])} | {row['categoria']} | "
-                f"{int(row['n_reportes'])} reportes | reincidencia {row['reincidencia']:.1f}"
+                f"{int(row['n_reportes'])} reportes | score {row['score']:.2f} | "
+                f"consenso {row['consenso']:.0%}"
             ),
         ).add_to(m)
 

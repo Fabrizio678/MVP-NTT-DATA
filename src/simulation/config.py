@@ -27,3 +27,10 @@ TIPOS_PROB = [0.55, 0.25, 0.20]
 # Deduplicación espacial (DBSCAN)
 EPS_METROS = 30
 MIN_SAMPLES = 3
+
+# Señales ciudadanas (subset observable de la rúbrica FICHA_ADR-CD).
+# Cada reporte individual es una observación RUIDOSA de la gravedad real del
+# foco: hay probabilidad de error/desacuerdo entre ciudadanos (PROB_ERROR_OBSERVACION).
+# El consenso entre reportes del mismo foco es lo que reduce esa incertidumbre.
+PROB_ERROR_OBSERVACION = 0.15
+VOLUMEN_CATEGORIAS = ["bajo", "medio", "alto"]

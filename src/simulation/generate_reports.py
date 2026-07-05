@@ -20,7 +20,17 @@ def generar_hotspots(rng: np.random.Generator, n: int = cfg.N_HOTSPOTS) -> pd.Da
     # pocos focos grandes, cola larga de focos chicos
     peso = rng.pareto(a=2.0, size=n) + 0.3
     peso = peso / peso.sum()
-    return pd.DataFrame({"hotspot_id": np.arange(n), "lat": lat, "lon": lon, "peso": peso})
+
+    # gravedad_real: la severidad técnica de fondo del foco (lo que un técnico
+    # certificaría). Correlaciona con el peso (más volumen suele ser más grave)
+    # pero no perfecto — el volumen de reportes por sí solo es un proxy ruidoso.
+    peso_rank = pd.Series(peso).rank(pct=True).values
+    gravedad_real = np.clip(0.5 * peso_rank + 0.5 * rng.random(n), 0, 1)
+
+    return pd.DataFrame({
+        "hotspot_id": np.arange(n), "lat": lat, "lon": lon,
+        "peso": peso, "gravedad_real": gravedad_real,
+    })
 
 
 def generar_reportes(seed: int = cfg.SEED) -> pd.DataFrame:
@@ -60,6 +70,30 @@ def generar_reportes(seed: int = cfg.SEED) -> pd.DataFrame:
     dia_offset = rng.integers(0, cfg.DIAS_SIMULACION, n_reportes)
     created_at = pd.Timestamp.now().normalize() - pd.to_timedelta(dia_offset, unit="D")
 
+    # gravedad_real de fondo: la del hotspot asignado, o baseline bajo si es aislado
+    gravedad = np.where(
+        es_hotspot,
+        hotspots.loc[hotspot_idx, "gravedad_real"].values,
+        rng.uniform(0, 0.3, n_reportes),
+    )
+
+    # señales ciudadanas: observación ruidosa de gravedad_real (subset de FICHA_ADR-CD
+    # que un ciudadano SÍ puede aportar; ver README sección 6)
+    def _bernoulli_ruidoso(p_base: np.ndarray) -> np.ndarray:
+        p_base = np.clip(p_base, 0, 1)
+        obs = rng.random(n_reportes) < p_base
+        error = rng.random(n_reportes) < cfg.PROB_ERROR_OBSERVACION
+        return np.where(error, ~obs, obs)
+
+    operatividad_activo = _bernoulli_ruidoso(0.3 + 0.6 * gravedad)
+    quema_observada = _bernoulli_ruidoso(0.05 + 0.5 * gravedad)
+    segregacion_observada = _bernoulli_ruidoso(0.10 + 0.4 * gravedad)
+
+    volumen_idx = np.clip((gravedad * 3).astype(int) + rng.integers(-1, 2, n_reportes), 0, 2)
+    volumen_categoria = np.array(cfg.VOLUMEN_CATEGORIAS)[volumen_idx]
+
+    permanencia_anios = np.round(np.clip(gravedad * 5 + rng.normal(0, 1, n_reportes), 0, None), 1)
+
     return pd.DataFrame({
         "reporte_id": np.arange(n_reportes),
         "ciudadano_id": ciudadano_id,
@@ -68,6 +102,11 @@ def generar_reportes(seed: int = cfg.SEED) -> pd.DataFrame:
         "tipo": tipo,
         "created_at": created_at,
         "es_hotspot_conocido": es_hotspot,
+        "operatividad_activo": operatividad_activo,
+        "quema_observada": quema_observada,
+        "segregacion_observada": segregacion_observada,
+        "volumen_categoria": volumen_categoria,
+        "permanencia_anios_estimado": permanencia_anios,
     })
 
 

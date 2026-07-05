@@ -61,8 +61,9 @@ Embudo de adopción:
 ```
 
 - Generador vectorizado (`numpy`, sin loops): 3,353 reportantes → ~7,957 reportes, 85% cae sobre uno de 46 focos sintéticos (distribución pareto: pocos focos grandes, cola larga de chicos), 15% aislados (uniforme en el bbox).
+- Cada hotspot tiene una `gravedad_real` de fondo (lo que un técnico certificaría). Cada reporte individual observa esa gravedad de forma **ruidosa**: señales binarias (`operatividad_activo`, `quema_observada`, `segregacion_observada`) generadas por Bernoulli sobre la gravedad, con `PROB_ERROR_OBSERVACION = 0.15` de probabilidad de error/desacuerdo por ciudadano. El consenso entre reportes del mismo foco reduce esa incertidumbre.
 - Dedup espacial: `DBSCAN` (eps=30m, min_samples=3) sobre proyección local grados→metros.
-- Clasificación de severidad: top-5 absoluto = `CRITICO`, resto por percentil (`ALTO` ≥ p90, `MEDIO` ≥ p75, `BAJO` el resto).
+- Clasificación de severidad: **no es por volumen crudo de reportes.** Se calcula un `score = volumen_norm × severidad_técnica × consenso`, donde `severidad_técnica` pondera las señales técnicas (`0.4·operatividad + 0.4·quema + 0.2·segregación`) y `consenso` mide qué tan de acuerdo están los reportes del foco en esas señales (0.5 = máxima discordia, 1.0 = unanimidad). Un foco con muchos reportes pero señales contradictorias pesa menos que uno con menos reportes y corroboración fuerte. Top-5 absoluto por `score` = `CRITICO`, resto por percentil de `score` (`ALTO` ≥ p90, `MEDIO` ≥ p75, `BAJO` el resto).
 - Salida: heatmap estático (matplotlib) + mapa interactivo (folium, con leyenda de escala y solo los focos `CRITICO` marcados por default).
 
 ## 7. Estructura del proyecto
@@ -112,3 +113,35 @@ El sistema atiende **densidades, no ciudadanos**. Ningún reporte suelto despach
 ## 11. Límite de entorno
 
 Sandbox de desarrollo sin egress a gob.pe/inei/oefa (403). Descargas de CSV/shapefile/PDF se corren desde la máquina del usuario; acá se generan y prueban los scripts.
+
+## 12. Extensión propuesta: reciclaje con incentivos (roadmap de datos)
+
+Ideas de negocio a incorporar al modelo de datos (sin diseño de interfaz — a cargo de desarrollo):
+
+**Campos nuevos sobre el reporte actual:**
+
+| Campo | Uso |
+|---|---|
+| `foto_url` / `foto_hash` (pHash) | evidencia + anti-fraude (ver §10, ya listado como pendiente) |
+| `tipo_material` (cartón, vidrio, plástico, orgánico...) | atributo adicional, no reemplaza `tipo` |
+| `ubigeo` | sectorización administrativa, independiente del cluster DBSCAN |
+| `reciclador_id` + `estado_corroboracion` (pendiente/corroborado/rechazado) | segundo validador humano sobre el reporte ciudadano |
+| `puntos_otorgados` | ledger de puntos por reporte corroborado |
+
+**Flujo de corroboración** (extiende CAPA 2):
+```
+ciudadano reporta (foto + tipo_material + ubicación)
+   → reciclador cercano corrobora en tiempo real (anti-falsificación)
+   → reporte pasa a "validado" → recién ahí suma a score/puntos
+```
+Dedup espacial (DBSCAN) sigue corriendo solo sobre reportes validados. Corroboración en tiempo real también evita que dos recicladores compitan por el mismo foco.
+
+**Predicción:** con `foto_hash` + `lat/lon` + `created_at` acumulados, un foco pasa de snapshot a serie temporal → forecasting de reincidencia/crecimiento por foco (no CV de imagen todavía, solo densidad histórica georreferenciada).
+
+**Categorización por severidad:** ya implementada (`score` = volumen + severidad técnica + consenso, ver §6). Evolución pendiente: reemplazar señal autorreportada (bernoulli ruidosa) por clasificación real vía CV sobre `foto_url`.
+
+**Sectorización:** `ubigeo` permite agregar reportes por zona municipal real, además del cluster físico DBSCAN — necesario para gestión municipal por sector.
+
+**Incentivos:** `puntos_otorgados` acumula en ledger por reciclador/ciudadano → canje externo (descuento tributario, alianzas con empresas — ej. textiles de VES). Ledger es tabla de datos a diseñar; integración con partners queda fuera del alcance de datos/mapa.
+
+**Actores:** dos públicos — reciclador independiente y municipalidad — más extensión futura a empresas generadoras de residuo aprovechable (textiles VES, etc.) como demanda de canje.
